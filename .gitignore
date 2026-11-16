@@ -1,0 +1,7 @@
+.env
+.venv*/
+__pycache__/
+.ipynb_checkpoints/
+@eaDir/
+runs/traces/
+runs/agent_alerts.log
