@@ -1,0 +1,246 @@
+{
+  "model": "claude-opus-5-5",
+  "effort": "low",
+  "runs": [
+    {
+      "scenario": "healthy",
+      "design": "workflow",
+      "repeat": 0,
+      "correct": true,
+      "diagnosis": {
+        "root_cause_component": "none",
+        "cause": "none",
+        "action": "none",
+        "evidence": "All five components are up with error rates of 0.05-0.2%, p95 latency at or below 120 ms, normal CPU and memory, passing probes and no restarts, and their 24h error histories are flat. Both canaries match the last approved release exactly. Every drift check has PSI below 0.05 with KS p-values above 0.27, and ensemble mae (about 3.1-3.7) and prediction_mean have stayed stable, so there is no drift and nothing to act on."
+      },
+      "stop": "end_turn",
+      "llm_calls": 1,
+      "tool_calls": 35,
+      "tool_errors": 0,
+      "usage": {
+        "input": 4,
+        "output": 184,
+        "cache_write": 6962,
+        "cache_read": 0,
+        "cost_usd": 0.03851
+      },
+      "seconds": 4.1
+    },
+    {
+      "scenario": "healthy",
+      "design": "agent",
+      "repeat": 0,
+      "correct": true,
+      "diagnosis": {
+        "root_cause_component": "none",
+        "cause": "none",
+        "action": "none",
+        "evidence": "All five components are up, with every error rate at or below 0.2%, p95 latency at or below 120 ms, CPU and memory well under the limits, all probes passing and no restarts. The ensemble's hourly mae held steady between about 3.1 and 3.7 over the last 24 hours, with no upward trend. Prediction drift tests on both models came back clean: demand-model PSI 0.016 (KS p 0.28) and stockout-model PSI 0.039 (KS p 0.87). Nothing needs action."
+      },
+      "stop": "end_turn",
+      "llm_calls": 3,
+      "tool_calls": 9,
+      "tool_errors": 0,
+      "usage": {
+        "input": 8,
+        "output": 731,
+        "cache_write": 4598,
+        "cache_read": 6607,
+        "cost_usd": 0.03896
+      },
+      "seconds": 8.9
+    },
+    {
+      "scenario": "drift_units",
+      "design": "workflow",
+      "repeat": 0,
+      "correct": false,
+      "diagnosis": {
+        "root_cause_component": "data-service",
+        "cause": "bad_deploy",
+        "action": "rollback",
+        "evidence": "data-service v2.3 was deployed at 2026-11-18T08:00Z to switch the weather feed to feed-b, and its log warns the payload has no unit metadata, so values pass through unchanged. That lines up with temperature_c drift on both models (mean 14.2 to 57.3, PSI 7.0, KS p=0.0, values like 78.4 outside the [-10, 38] training range, logged 2,914 times since 08:00Z), while humidity, wind and rain are stable. Ensemble MAE jumped from about 3.4 to 17.6 and prediction_mean from about 35 to 52 starting in the 08:00 hour, but model canaries pass and all health metrics are normal, so the models are fine and the data-service deploy should be rolled back."
+      },
+      "stop": "end_turn",
+      "llm_calls": 1,
+      "tool_calls": 35,
+      "tool_errors": 0,
+      "usage": {
+        "input": 4,
+        "output": 291,
+        "cache_write": 7185,
+        "cache_read": 0,
+        "cost_usd": 0.04176
+      },
+      "seconds": 4.8
+    },
+    {
+      "scenario": "drift_units",
+      "design": "agent",
+      "repeat": 0,
+      "correct": false,
+      "diagnosis": {
+        "root_cause_component": "data-service",
+        "cause": "bad_deploy",
+        "action": "rollback",
+        "evidence": "Demand-model MAE was steady at about 3.4, then jumped to about 17.6 in the 08:00Z hour. That is when data-service v2.3 was deployed to switch to a new weather feed provider. The demand-model's temperature_c input has drifted sharply: the mean went from 14.2 to 57.3 (PSI 7.0, KS p=0.0), which looks like Fahrenheit values being sent where Celsius is expected. The demand-model canary passed with zero difference, so the model itself hasn't changed and the bad inputs come from the data-service deploy; roll data-service back to v2.2."
+      },
+      "stop": "end_turn",
+      "llm_calls": 3,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "usage": {
+        "input": 8,
+        "output": 561,
+        "cache_write": 3866,
+        "cache_read": 6143,
+        "cost_usd": 0.03181
+      },
+      "seconds": 8.5
+    },
+    {
+      "scenario": "bad_deploy",
+      "design": "workflow",
+      "repeat": 0,
+      "correct": true,
+      "diagnosis": {
+        "root_cause_component": "demand-model",
+        "cause": "bad_deploy",
+        "action": "rollback",
+        "evidence": "The demand-model v1.8 deploy (2026-11-18T12:00Z, new feature pipeline 2.0) lines up with the error spike in the 12:00 hour bucket, and its logs show 981 predict failures from NaN in 'wind_kph'. The demand-model canary also fails (max diff 38 vs tolerance 5), prediction PSI is 4.96, and ensemble mae jumped from about 3.4 to 22. Input drift on every feature, wind_kph included, is noise (PSI < 0.05), while data-service and stockout-model are healthy with flat error rates, so the gateway and ensemble errors are spreading upstream from the demand-model."
+      },
+      "stop": "end_turn",
+      "llm_calls": 1,
+      "tool_calls": 35,
+      "tool_errors": 0,
+      "usage": {
+        "input": 4,
+        "output": 262,
+        "cache_write": 7187,
+        "cache_read": 0,
+        "cost_usd": 0.04119
+      },
+      "seconds": 3.9
+    },
+    {
+      "scenario": "bad_deploy",
+      "design": "agent",
+      "repeat": 0,
+      "correct": true,
+      "diagnosis": {
+        "root_cause_component": "demand-model",
+        "cause": "bad_deploy",
+        "action": "rollback",
+        "evidence": "demand-model is the furthest-downstream failing component: 6.8% errors and 940 ms p95 latency, which spread to ensemble (6.9%) and api-gateway. Its dependencies are fine: data-service is up with 0.05% errors, and stockout-model is also healthy. Demand-model errors held near 0.1% and then jumped to about 6.6% starting at 12:00Z, the same time v1.8 was deployed with the new feature pipeline. Its logs show 981 failed predictions in the last hour because 'wind_kph' contains missing values (NaN) that the model can't accept, so rolling back to v1.7 should fix it."
+      },
+      "stop": "end_turn",
+      "llm_calls": 3,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "usage": {
+        "input": 8,
+        "output": 680,
+        "cache_write": 4399,
+        "cache_read": 6147,
+        "cost_usd": 0.03686
+      },
+      "seconds": 7.3
+    },
+    {
+      "scenario": "upstream_outage",
+      "design": "workflow",
+      "repeat": 0,
+      "correct": true,
+      "diagnosis": {
+        "root_cause_component": "data-service",
+        "cause": "outage",
+        "action": "restart_or_scale",
+        "evidence": "data-service is the furthest-downstream failing component: it was OOMKilled at 13:18Z (memory 99%, limit 2Gi), is in CrashLoopBackOff with 7 restarts, and is failing liveness/readiness probes at 100% errors. Both models log data-service feature-fetch timeouts, which surface as 504s at the ensemble and gateway. The stockout-model v2.1 deploy at 11:00Z predates the 13:18Z failure, and its canary passed. The last data-service deploy was on Nov 10, and all drift PSI values are below 0.05, so this is neither a bad deploy nor drift."
+      },
+      "stop": "end_turn",
+      "llm_calls": 1,
+      "tool_calls": 35,
+      "tool_errors": 0,
+      "usage": {
+        "input": 4,
+        "output": 249,
+        "cache_write": 7297,
+        "cache_read": 0,
+        "cost_usd": 0.04148
+      },
+      "seconds": 3.4
+    },
+    {
+      "scenario": "upstream_outage",
+      "design": "agent",
+      "repeat": 0,
+      "correct": true,
+      "diagnosis": {
+        "root_cause_component": "data-service",
+        "cause": "outage",
+        "action": "restart_or_scale",
+        "evidence": "data-service is the furthest-downstream failing component. Both its liveness and readiness probes fail, it has 100% errors and 99% memory use, and its logs show an OOMKilled container at its 2Gi memory limit, then CrashLoopBackOff with 7 restarts. Both models and the ensemble have errors around 40% with p95 latency of about 2050 ms, which fits the failure spreading up from data-service to the api-gateway. Its last deploy, v2.2, went out on 2026-11-10, about 8 days before today's crashes, so a bad deploy is not the cause; restart it or give it more memory."
+      },
+      "stop": "end_turn",
+      "llm_calls": 3,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "usage": {
+        "input": 8,
+        "output": 599,
+        "cache_write": 4044,
+        "cache_read": 6144,
+        "cost_usd": 0.03346
+      },
+      "seconds": 7.0
+    },
+    {
+      "scenario": "noise",
+      "design": "workflow",
+      "repeat": 0,
+      "correct": true,
+      "diagnosis": {
+        "root_cause_component": "none",
+        "cause": "none",
+        "action": "none",
+        "evidence": "Humidity drift has KS p=0.0053 but PSI is only 0.062, which is below the 0.1 noise threshold. With n=400 vs n=2000, a 2-point mean shift is statistically significant without mattering in practice. Prediction drift is insignificant (PSI 0.015, p=0.16) and ensemble MAE is flat around 3.2\u20133.6. All components are healthy with stable error rates, and both canaries passed, so this is noise: record the drift and take no action."
+      },
+      "stop": "end_turn",
+      "llm_calls": 1,
+      "tool_calls": 35,
+      "tool_errors": 0,
+      "usage": {
+        "input": 4,
+        "output": 191,
+        "cache_write": 7029,
+        "cache_read": 0,
+        "cost_usd": 0.03898
+      },
+      "seconds": 3.3
+    },
+    {
+      "scenario": "noise",
+      "design": "agent",
+      "repeat": 0,
+      "correct": true,
+      "diagnosis": {
+        "root_cause_component": "none",
+        "cause": "none",
+        "action": "none",
+        "evidence": "I reran the humidity drift test on demand-model. The KS p-value is 0.0053, but the PSI is only 0.062, and the runbook treats a PSI below 0.1 as noise when the sample is large. The window's mean humidity is 63.7, close to the training mean of 61.6. Demand-model MAE has stayed flat at about 3.2\u20133.7 for the past 24 hours, so no metric has moved: record the drift alert and take no action."
+      },
+      "stop": "end_turn",
+      "llm_calls": 2,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "usage": {
+        "input": 6,
+        "output": 362,
+        "cache_write": 3074,
+        "cache_read": 2541,
+        "cost_usd": 0.02314
+      },
+      "seconds": 4.6
+    }
+  ]
+}

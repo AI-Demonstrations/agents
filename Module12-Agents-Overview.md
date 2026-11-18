@@ -8,7 +8,23 @@ An ensemble combines models in a way you fix in code: average these outputs, sta
 
 ## What an Agent Is
 
-An agent is a loop around a model:
+### An Example First
+
+An alert fires on the bike-share forecasting system in this module's worked example: *api-gateway error rate above 20% for 10 minutes.* The on-call agent gets three things: the alert as its task, the team's runbook in its system prompt, and seven read-only tools that are this module's checks: `list_components`, `get_health`, `get_metric_history`, `run_drift_test`, `run_canary`, `get_deploy_history` and `get_recent_logs`. Here is one run of `1_agent_loop.py`, abridged:
+
+| Step | The model asks for | What comes back | What the model makes of it |
+|---|---|---|---|
+| 1 | `list_components`, then `get_health` on data-service, both models and the ensemble | The call chain: api-gateway → ensemble → both models → data-service. data-service is down, with memory at 99% and 7 restarts in the hour. The other three have errors but pass their probes, and all show the same 2,050 ms p95 latency | The others are waiting on data-service, so it is the suspect |
+| 2 | `get_deploy_history`, `get_recent_logs` and `get_metric_history(memory_pct)` for data-service | The last deploy was eight days ago. The logs show `OOMKilled (memory limit 2Gi)` and then `CrashLoopBackOff`. Memory sat near 57% until four hours ago, then climbed 78 → 99% | It ran out of memory; a bad deploy did not cause this |
+| 3 | No tool | | **Answer:** the root cause is data-service out of memory. Restart it and raise its memory limit or add replicas. Do not roll back. Next, check its request-rate history to find out why memory climbed |
+
+The run took 3 model calls and 8 tool calls, about 9,200 input tokens and 4 cents.
+
+Nobody wrote that sequence in code. The alert named api-gateway, but the model never checked it. It read the call chain, saw that everything above data-service was failing in the same way, and went to the bottom of the chain. It checked for a deploy because the runbook says to, and dropped the idea when the dates did not match. It also said what it had not checked. A different alert would take it down a different path with the same code, prompt and tools.
+
+### The General Definition
+
+Take away the incident and every agent has the same shape, a loop around a model:
 
 ```
 task + tools ──► model ──► asks for a tool? ──yes──► your code runs it ──► result ──┐
@@ -20,6 +36,8 @@ task + tools ──► model ──► asks for a tool? ──yes──► your 
 1. Send the task, a system prompt and the tool definitions to the model.
 2. If the reply asks for tools, run them in your code and send the results back.
 3. Repeat until the reply asks for no tool, or a limit is reached.
+
+In the example, the task is the alert, the tools are the seven checks, and `OpsSystem.execute` in `ops_system.py` is "your code runs it." The loop ended at step 3 because the reply asked for no tool. If it had not, `MAX_STEPS = 12` would have stopped it.
 
 Four facts follow from the loop, and most of the production work comes from them:
 
@@ -76,11 +94,39 @@ The [agents repository](https://github.com/AI-Demonstrations/agents) holds three
 
 | File | What it shows |
 |---|---|
-| `1_agent_loop.py` | The agent loop written out in full, printing every step |
+| `1_agent_loop.py` | The agent loop written out in full, printing every step (the run in *An Example First*) |
 | `2_workflow_vs_agent.py` | A fixed workflow against the agent on five incidents with known causes: accuracy, model calls, tokens, dollars and seconds |
 | `3_guarded_agent.py` | The agent with production controls: trace, budgets, validation, human approval, tool failures, an injected instruction in a log line, and a report that monitors the agent against thresholds |
 
 Everything runs on your VM's CPU. The examples call the Anthropic API and need an `ANTHROPIC_API_KEY` in a `.env` file, as the language-model sections of the Module 11 explainability examples did. A run costs a few cents.
+
+## Ensemble or Agent: How to Decide
+
+An ensemble and an agent do different kinds of work, so the job usually decides between them. An ensemble combines models to make one better prediction. An agent works out a sequence of steps to complete a task. Look at the job against each of these factors:
+
+| Factor | Points to an ensemble | Points to an agent |
+|---|---|---|
+| **The job** | One prediction per request, made the same way every time | A task whose next step depends on what the last step found |
+| **Input and output** | Structured features in; a number, class or probability out | An open request in, such as an alert or a question; a finding, a plan or an action out |
+| **Volume and latency** | Many requests, each answered in milliseconds | Few requests, where seconds or minutes are acceptable |
+| **Cost per request** | Fixed, and close to zero once the models are trained | Cents per run and variable, because each step is a model call |
+| **How you show it works** | A metric on a held-out test set, such as MAE or AUC | Success rate over repeated runs on cases with known answers |
+| **What you need to build it** | Labeled training data | Tools, written instructions such as a runbook, and test cases |
+| **How it fails** | A wrong number, with an error you can measure | A wrong path or a wrong action, which needs budgets, validation and approval |
+| **How you explain a result** | Feature importance and SHAP, as in Module 11 | The trace of the steps the model took |
+| **What drifts** | Input data and predictions; you retrain | The model version, the prompt and the mix of tool calls; you re-test |
+
+If most rows point to an ensemble, use one. If most point to an agent, try a fixed workflow first and check the four conditions in *Workflow, Router or Agent*. The agent has to beat the workflow on a measure you chose before you ran either.
+
+The two can work together. An agent can call an ensemble as one of its tools, and an ensemble can be one of the components an agent monitors.
+
+### Use Case: Two Jobs in the Bike-Share System
+
+The system in the worked example has two jobs, and they land on opposite sides of the table.
+
+**Job 1: forecast each station for the next hour.** Each station needs a forecast of its rides and of its chance of running out of bikes. Both models score the same station from the same features, and the `ensemble` component combines their outputs into one forecast. Every row points to an ensemble. The steps never change, requests are many and must be answered quickly, and actual rides arrive an hour later, so the team has labels to train on and MAE to measure. An agent would add seconds and cents to every forecast, where the ensemble takes milliseconds and a fraction of a cent. It would gain nothing for that cost, because it would have no choices to make.
+
+**Job 2: find out why the forecast broke.** When an alert fires, someone has to find the cause, and the right checks depend on what each one shows. An out-of-memory crash, a bad deploy and drifted inputs each need different evidence, as *An Example First* showed. Alerts are rare, and an answer in a minute or two is fast enough. Mistakes can be caught, because the agent's tools only read and a person approves any change (`3_guarded_agent.py`). Incidents are too few and too varied to train a model on, but past incidents with known causes make a test set. Most rows point to an agent. Before you build one, `2_workflow_vs_agent.py` runs the comparison above: a fixed workflow that runs every check against the agent, on five incidents with known causes. The agent earns its place only if it gets more of them right, at a cost per run the team accepts.
 
 ## Readings
 
